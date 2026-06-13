@@ -456,6 +456,7 @@ Private Function GerarHistoricoProfissional(ws As Worksheet) As Variant
     Dim ultimaLinha, i, expIndex As Integer
     Dim empresa, cargo, periodo, atividade As String
     Dim descricaoResumida, acoesPrincipais, ferramentas, impacto As String
+    Dim incluirNoHistorico As String
     Dim periodoObjTemp As Object
     
     Set empresas = CreateObject("Scripting.Dictionary")
@@ -472,6 +473,12 @@ Private Function GerarHistoricoProfissional(ws As Worksheet) As Variant
         ferramentas = ws.Cells(i, 7).Value
         impacto = ws.Cells(i, 8).Value
         
+        incluirNoHistorico = ws.Cells(i, 9).Value
+
+        ' Filtrar apenas experiencias marcadas como "SIM" na coluna I
+        If UCase(Trim(incluirNoHistorico)) <> "SIM" Then
+            GoTo NextIteration
+        End If
         ' Validar se período não está vazio
         If Trim(periodo) = "" Then
             periodo = "Não informado"
@@ -503,6 +510,7 @@ Private Function GerarHistoricoProfissional(ws As Worksheet) As Variant
             Set atividadeDetalhes = atividadeDict("areas_atuacao")(atividade)
             atividadeDetalhes("responsabilidades") = AppendToArrayObj(atividadeDetalhes("responsabilidades"), CriarResponsabilidadeEstruturada(descricaoResumida, acoesPrincipais, ferramentas, impacto))
         End If
+NextIteration:
     Next i
     
     ' Converter para array
