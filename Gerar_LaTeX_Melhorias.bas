@@ -423,8 +423,301 @@ Sub MelhorarResultados()
     MsgBox "Planilha 'Melhores_Resultados' criada com sucesso!" & vbCrLf & _
            "Total de bullets analisados: " & (row - 2) & vbCrLf & vbCrLf & _
            "Proximos passos:" & vbCrLf & _
-           "1. Revise as sugestoes de melhoria na coluna E" & vbCrLf & _
-           "2. Aplique as melhorias e preencha a coluna F" & vbCrLf & _
-           "3. Avalie a qualidade (1-10) na coluna G" & vbCrLf & _
-           "4. Marque as acoes implementadas na coluna H", vbInformation, "Sucesso!"
+           "1. Clique em 'MelhorarBulletsComIA' para processar automaticamente" & vbCrLf & _
+           "2. Ou revise manualmente as sugestoes na coluna E", vbInformation, "Sucesso!"
+End Sub
+
+' ========== FUNCOES AUXILIARES ==========
+
+' Gerar historico profissional filtrado (apenas experiencias marcadas como SIM)
+Function GerarHistoricoProfissional(wsExp As Worksheet) As Variant
+    Dim historico() As Object
+    Dim i As Integer, expIndex As Integer
+    Dim ultimaLinha As Integer
+    Dim incluirComoBoolean As Boolean
+    
+    ultimaLinha = wsExp.Cells(Rows.Count, 1).End(xlUp).Row
+    expIndex = 0
+    ReDim historico(0 To 10) ' Array dinamico inicial
+    
+    For i = 2 To ultimaLinha
+        ' Verificar coluna I (Incluir?)
+        If UCase(Trim(wsExp.Cells(i, 9).Value)) = "SIM" Then
+            Dim empresaObj As Object
+            Set empresaObj = CreateObject("Scripting.Dictionary")
+            
+            empresaObj("nome_empresa") = wsExp.Cells(i, 1).Value
+            
+            ' Criar array de cargos
+            Dim cargos() As Object
+            ReDim cargos(0 To 0)
+            Set cargos(0) = CreateObject("Scripting.Dictionary")
+            
+            cargos(0)("cargo_nome") = wsExp.Cells(i, 2).Value
+            
+            ' Periodo
+            Dim periodoObj As Object
+            Set periodoObj = CreateObject("Scripting.Dictionary")
+            periodoObj("inicio") = wsExp.Cells(i, 3).Value
+            periodoObj("fim") = wsExp.Cells(i, 4).Value
+            periodoObj("em_andamento") = (UCase(Trim(wsExp.Cells(i, 5).Value)) = "SIM")
+            cargos(0)("periodo_cargo") = periodoObj
+            
+            ' Areas de atuacao
+            Dim areas() As Object
+            ReDim areas(0 To 0)
+            Set areas(0) = CreateObject("Scripting.Dictionary")
+            areas(0)("area") = wsExp.Cells(i, 6).Value
+            
+            ' Responsabilidades
+            Dim resp() As Object
+            ReDim resp(0 To 0)
+            Set resp(0) = CreateObject("Scripting.Dictionary")
+            resp(0)("descricao_resumida") = wsExp.Cells(i, 7).Value
+            resp(0)("acoes_principais") = Split(wsExp.Cells(i, 8).Value, ";")
+            resp(0)("impacto") = wsExp.Cells(i, 10).Value
+            
+            areas(0)("responsabilidades") = resp
+            cargos(0)("areas_atuacao") = areas
+            empresaObj("cargos") = cargos
+            
+            Set historico(expIndex) = empresaObj
+            expIndex = expIndex + 1
+            
+            If expIndex > UBound(historico) Then
+                ReDim Preserve historico(0 To expIndex + 10)
+            End If
+        End If
+    Next i
+    
+    ' Redimensionar array final
+    If expIndex > 0 Then
+        ReDim Preserve historico(0 To expIndex - 1)
+        GerarHistoricoProfissional = historico
+    Else
+        GerarHistoricoProfissional = Array()
+    End If
+End Function
+
+' Remover escapes Unicode do JSON
+Function RemoveUnicodeEscapes(jsonString As String) As String
+    Dim result As String
+    result = jsonString
+    
+    ' Substituir escapes Unicode comuns
+    result = Replace(result, "\u00e9", "é")
+    result = Replace(result, "\u00ea", "ê")
+    result = Replace(result, "\u00ed", "í")
+    result = Replace(result, "\u00f3", "ó")
+    result = Replace(result, "\u00f4", "ô")
+    result = Replace(result, "\u00fa", "ú")
+    result = Replace(result, "\u00e7", "ç")
+    result = Replace(result, "\u00c7", "Ç")
+    result = Replace(result, "\u00e3", "ã")
+    result = Replace(result, "\u00f5", "õ")
+    result = Replace(result, "\u00e1", "á")
+    result = Replace(result, "\u00c1", "Á")
+    result = Replace(result, "\u00c9", "É")
+    result = Replace(result, "\u00ca", "Ê")
+    result = Replace(result, "\u00cd", "Í")
+    result = Replace(result, "\u00d3", "Ó")
+    result = Replace(result, "\u00d4", "Ô")
+    result = Replace(result, "\u00da", "Ú")
+    result = Replace(result, "\u00d5", "Õ")
+    
+    RemoveUnicodeEscapes = result
+End Function
+
+' ========== MELHORAR BULLETS COM IA (API NVIDIA) ==========
+Sub MelhorarBulletsComIA()
+    Dim wsMelhoria As Worksheet
+    Dim row As Integer, ultimaLinha As Integer
+    Dim bulletAtual As String
+    Dim respostaIA As String
+    Dim notaQualidade As String
+    Dim bulletOtimizado As String
+    
+    ' Verificar se existe a aba de melhoria
+    On Error Resume Next
+    Set wsMelhoria = ThisWorkbook.Sheets("Melhores_Resultados")
+    If wsMelhoria Is Nothing Then
+        MsgBox "A aba 'Melhores_Resultados' nao foi encontrada!" & vbCrLf & _
+               "Execute primeiro a funcao 'MelhorarResultados'.", vbExclamation
+        Exit Sub
+    End If
+    On Error GoTo 0
+    
+    ultimaLinha = wsMelhoria.Cells(Rows.Count, 1).End(xlUp).Row
+    
+    If ultimaLinha < 2 Then
+        MsgBox "Nenhum bullet encontrado para melhorar!", vbInformation
+        Exit Sub
+    End If
+    
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    Dim processedCount As Integer
+    processedCount = 0
+    
+    ' Iterar sobre cada bullet
+    For row = 2 To ultimaLinha
+        bulletAtual = wsMelhoria.Cells(row, 4).Value
+        
+        If bulletAtual <> "" And wsMelhoria.Cells(row, 6).Value = "" Then
+            ' Chamar API para melhorar o bullet
+            respostaIA = ChamarAPINvidia(bulletAtual)
+            
+            If respostaIA <> "" Then
+                ' Parse da resposta (formato esperado: JSON ou texto estruturado)
+                Call ExtrairRespostaIA(respostaIA, notaQualidade, bulletOtimizado)
+                
+                wsMelhoria.Cells(row, 6).Value = bulletOtimizado
+                wsMelhoria.Cells(row, 7).Value = notaQualidade
+                wsMelhoria.Cells(row, 8).Value = "Implementado via IA"
+                
+                processedCount = processedCount + 1
+                
+                ' Pequena pausa para nao sobrecarregar a API
+                DoEvents
+            End If
+        End If
+    Next row
+    
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    
+    MsgBox "Processo concluido!" & vbCrLf & _
+           "Bullets processados: " & processedCount & vbCrLf & _
+           "Total de bullets: " & (ultimaLinha - 1), vbInformation, "Melhoria com IA"
+End Sub
+
+' Chamar API da NVIDIA
+Function ChamarAPINvidia(bulletAtual As String) As String
+    Dim httpReq As Object
+    Dim apiUrl As String
+    Dim apiKey As String
+    Dim requestBody As String
+    Dim responseText As String
+    Dim promptCompleto As String
+    
+    ' Configuracoes da API
+    apiUrl = "https://integrate.api.nvidia.com/v1/chat/completions"
+    apiKey = "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"
+    
+    ' Criar prompt otimizado
+    promptCompleto = "Analise o seguinte bullet point de curriculo e sugira melhorias:" & vbCrLf & vbCrLf & _
+                     "Bullet atual: " & bulletAtual & vbCrLf & vbCrLf & _
+                     "Criterios de melhoria:" & vbCrLf & _
+                     "1. Adicione metricas e resultados quantificaveis (use numeros, porcentagens, valores)" & vbCrLf & _
+                     "2. Use verbos de acao fortes no inicio (liderou, implementou, otimizou, etc.)" & vbCrLf & _
+                     "3. Destaque impacto nos negocios (receita, economia, eficiencia, satisfacao)" & vbCrLf & _
+                     "4. Otimize para ATS (palavras-chave relevantes da area)" & vbCrLf & _
+                     "5. Mantenha concisao (maximo 2 linhas)" & vbCrLf & vbCrLf & _
+                     "Forneca APENAS no formato JSON abaixo, sem texto adicional:" & vbCrLf & _
+                     "{" & vbCrLf & _
+                     "  ""nota_qualidade"": ""7""," & vbCrLf & _
+                     "  ""bullet_otimizado"": ""Versao melhorada do bullet aqui""" & vbCrLf & _
+                     "}"
+    
+    ' Montar request body
+    requestBody = "{""model"":""minimaxai/minimax-m3""," & _
+                  """messages"":[{""role"":""user"",""content"":""" & EscapeJson(promptCompleto) & """}]," & _
+                  """max_tokens"":8192," & _
+                  """temperature"":1.0," & _
+                  """top_p"":0.95," & _
+                  """stream"":false}"
+    
+    ' Criar objeto HTTP
+    Set httpReq = CreateObject("MSXML2.XMLHTTP")
+    
+    On Error Resume Next
+    httpReq.Open "POST", apiUrl, False
+    httpReq.setRequestHeader "Content-Type", "application/json"
+    httpReq.setRequestHeader "Authorization", "Bearer " & apiKey
+    httpReq.setRequestHeader "Accept", "application/json"
+    httpReq.send requestBody
+    
+    If httpReq.Status = 200 Then
+        responseText = httpReq.responseText
+        
+        ' Extrair conteudo da resposta
+        ChamarAPINvidia = ExtrairConteudoResposta(responseText)
+    Else
+        ChamarAPINvidia = ""
+        Debug.Print "Erro API: " & httpReq.Status & " - " & httpReq.statusText
+    End If
+    On Error GoTo 0
+End Function
+
+' Escapar caracteres especiais para JSON
+Function EscapeJson(texto As String) As String
+    Dim result As String
+    result = texto
+    
+    result = Replace(result, "\", "\\")
+    result = Replace(result, """", "\""")
+    result = Replace(result, vbCrLf, "\\n")
+    result = Replace(result, vbCr, "\\n")
+    result = Replace(result, vbLf, "\\n")
+    result = Replace(result, vbTab, "\\t")
+    
+    EscapeJson = result
+End Function
+
+' Extrair conteudo da resposta JSON
+Function ExtrairConteudoResposta(jsonResponse As String) As String
+    Dim json As Object
+    Dim content As String
+    
+    On Error Resume Next
+    Set json = JsonConverter.ParseJson(jsonResponse)
+    
+    If Not json Is Nothing Then
+        If json.Exists("choices") Then
+            If IsArray(json("choices")) Or TypeName(json("choices")) = "Collection" Then
+                content = json("choices")(1)("message")("content")
+            End If
+        End If
+    End If
+    
+    ExtrairConteudoResposta = content
+    On Error GoTo 0
+End Function
+
+' Extrair dados da resposta da IA
+Sub ExtrairRespostaIA(respostaIA As String, ByRef notaQualidade As String, ByRef bulletOtimizado As String)
+    Dim json As Object
+    Dim startPos As Integer, endPos As Integer
+    Dim jsonStr As String
+    
+    notaQualidade = ""
+    bulletOtimizado = ""
+    
+    ' Tentar encontrar JSON na resposta
+    startPos = InStr(respostaIA, "{")
+    endPos = InStrRev(respostaIA, "}")
+    
+    If startPos > 0 And endPos > startPos Then
+        jsonStr = Mid(respostaIA, startPos, endPos - startPos + 1)
+        
+        On Error Resume Next
+        Set json = JsonConverter.ParseJson(jsonStr)
+        
+        If Not json Is Nothing Then
+            If json.Exists("nota_qualidade") Then
+                notaQualidade = CStr(json("nota_qualidade"))
+            End If
+            If json.Exists("bullet_otimizado") Then
+                bulletOtimizado = CStr(json("bullet_otimizado"))
+            End If
+        End If
+        On Error GoTo 0
+    End If
+    
+    ' Se nao conseguiu parsear, usar resposta bruta
+    If bulletOtimizado = "" Then
+        bulletOtimizado = respostaIA
+        notaQualidade = "N/A"
+    End If
 End Sub
