@@ -1,1 +1,33 @@
-Nothing needs to be added to .gitignore for this change. The file `GerarLaTex.bas` appears to be a source code file that should be tracked in version control, and there are no build artifacts, dependencies, or temporary files in the changes that would warrant adding ignore rules.
+# Templates
+templates/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.toc
+*.lof
+*.lot
+*.out
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.pdf
+
+# BasicTeX/MacTeX cache
+.texpadtmp
+
+# Other common LaTeX temp/build files
+*.dvi
+*.ps
+*.svg
+*.fig
+*.loa
+*.nav
+*.snm
+*.vrb
+*.run.xml
+*.bcf
+*.xml
+*.synctex(busy)
